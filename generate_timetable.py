@@ -1,11 +1,13 @@
+from html import parser
+
 import pandas as pd
 import ast
-from zoneinfo import ZoneInfo
 from pathlib import Path
 import argparse
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import json
+from timezonefinder import TimezoneFinder
 
 # ---------------------------------------------------------
 # SETTINGS
@@ -35,9 +37,13 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--timezone",
-        required=True,
-        help="IANA timezone, e.g. America/New_York.",
+    "--timezone",
+    required=False,
+    help=(
+        "Optional IANA timezone override, e.g. America/New_York. "
+        "If omitted, the timezone is determined automatically "
+        "from the airport reference data."
+    ),
     )
 
     parser.add_argument(
@@ -73,13 +79,6 @@ def validate_args(args):
     except ValueError:
         raise SystemExit(
             "Error: date must use YYYY-MM-DD format."
-        )
-
-    try:
-        ZoneInfo(args.timezone)
-    except ZoneInfoNotFoundError:
-        raise SystemExit(
-            f'Error: unknown timezone "{args.timezone}".'
         )
 
 def load_airport_overrides(path="airport_overrides.json"):
@@ -118,6 +117,81 @@ def load_known_airports(path="reference/airports.csv"):
 
     return known_airports
 
+def get_airport_metadata(
+    airport_code,
+    path="reference/airports.csv",
+):
+    airports = pd.read_csv(
+        path,
+        low_memory=False,
+    )
+
+    airport_code = airport_code.upper()
+
+    match = airports[
+        (airports["ident"].astype(str).str.upper() == airport_code)
+        |
+        (
+            airports["gps_code"]
+            .fillna("")
+            .astype(str)
+            .str.upper()
+            == airport_code
+        )
+    ]
+
+    if match.empty:
+        raise SystemExit(
+            f'Error: airport "{airport_code}" was not found '
+            "in the airport reference dataset."
+        )
+
+    airport = match.iloc[0]
+
+    return {
+        "ident": str(airport.get("ident", airport_code)),
+        "name": str(airport.get("name", "")),
+        "latitude": airport.get("latitude_deg"),
+        "longitude": airport.get("longitude_deg"),
+    }
+
+def determine_timezone(airport_metadata, override=None):
+    if override:
+        try:
+            ZoneInfo(override)
+        except ZoneInfoNotFoundError:
+            raise SystemExit(
+                f'Error: unknown timezone "{override}".'
+            )
+
+        return override
+
+    latitude = airport_metadata["latitude"]
+    longitude = airport_metadata["longitude"]
+
+    if pd.isna(latitude) or pd.isna(longitude):
+        raise SystemExit(
+            "Error: airport coordinates are missing and "
+            "timezone could not be determined automatically. "
+            "Use --timezone to specify it manually."
+        )
+
+    finder = TimezoneFinder()
+
+    timezone = finder.timezone_at(
+        lat=float(latitude),
+        lng=float(longitude),
+    )
+
+    if not timezone:
+        raise SystemExit(
+            "Error: timezone could not be determined "
+            "for the selected airport. "
+            "Use --timezone to specify it manually."
+        )
+
+    return timezone
+
 args = parse_args()
 validate_args(args)
 
@@ -127,7 +201,23 @@ KNOWN_AIRPORTS = load_known_airports()
 FILE = args.input
 AIRPORT = args.airport.upper()
 TARGET_DATE = args.date
-TIMEZONE = args.timezone
+
+airport_metadata = get_airport_metadata(AIRPORT)
+
+TIMEZONE = determine_timezone(
+    airport_metadata,
+    args.timezone,
+)
+
+print("\nAirport configuration:")
+print(f"Airport:  {AIRPORT}")
+print(f"Name:     {airport_metadata['name']}")
+print(f"Timezone: {TIMEZONE}")
+
+if args.timezone:
+    print("Source:   CLI override")
+else:
+    print("Source:   Automatically detected")
 
 OUTPUT_DIR = Path("output")
 OUTPUT_FILE = OUTPUT_DIR / f"{AIRPORT} {args.name}.csv"
