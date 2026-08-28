@@ -2,8 +2,5 @@
   "reidentifications": {
     "KPBI": "KDJT"
   },
-  "excluded_airports": [
-    "MUPR",
-    "LGHL"
-  ]
+  "excluded_airports": []
 }
