@@ -2,22 +2,95 @@ import pandas as pd
 import ast
 from zoneinfo import ZoneInfo
 from pathlib import Path
-
+import argparse
+from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # ---------------------------------------------------------
 # SETTINGS
 # ---------------------------------------------------------
 
-FILE = "data/2026_Q2_detailed_github.parquet"
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Generate VICE-compatible timetables from historical flight data."
+    )
 
-AIRPORT = "KCLT"
-TARGET_DATE = "2026-06-18"
+    parser.add_argument(
+        "--input",
+        required=True,
+        help="Path to the source Parquet flight dataset.",
+    )
 
-TIMEZONE = "America/New_York"
+    parser.add_argument(
+        "--airport",
+        required=True,
+        help="Airport ICAO identifier, e.g. KCLT.",
+    )
+
+    parser.add_argument(
+        "--date",
+        required=True,
+        help="Local calendar date in YYYY-MM-DD format.",
+    )
+
+    parser.add_argument(
+        "--timezone",
+        required=True,
+        help="IANA timezone, e.g. America/New_York.",
+    )
+
+    parser.add_argument(
+        "--name",
+        default="Timetable",
+        help='Timetable name, e.g. "Summer Weekday".',
+    )
+
+    return parser.parse_args()
+
+def validate_args(args):
+    input_path = Path(args.input)
+
+    if not input_path.exists():
+        raise SystemExit(
+            f'Error: input file not found: "{args.input}"'
+        )
+
+    if input_path.suffix.lower() != ".parquet":
+        raise SystemExit(
+            "Error: input file must be a .parquet file."
+        )
+
+    airport = args.airport.upper()
+
+    if len(airport) != 4 or not airport.isalpha():
+        raise SystemExit(
+            "Error: airport must be a 4-letter ICAO identifier, e.g. KCLT."
+        )
+
+    try:
+        datetime.strptime(args.date, "%Y-%m-%d")
+    except ValueError:
+        raise SystemExit(
+            "Error: date must use YYYY-MM-DD format."
+        )
+
+    try:
+        ZoneInfo(args.timezone)
+    except ZoneInfoNotFoundError:
+        raise SystemExit(
+            f'Error: unknown timezone "{args.timezone}".'
+        )
+
+args = parse_args()
+validate_args(args)
+
+FILE = args.input
+AIRPORT = args.airport.upper()
+TARGET_DATE = args.date
+TIMEZONE = args.timezone
 
 OUTPUT_DIR = Path("output")
-OUTPUT_FILE = OUTPUT_DIR / "KCLT Summer Weekday.csv"
-
+OUTPUT_FILE = OUTPUT_DIR / f"{AIRPORT} {args.name}.csv"
 
 # Dedicated cargo airline ICAO codes.
 # We can expand this after auditing the generated timetable.
