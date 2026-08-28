@@ -96,10 +96,33 @@ def load_airport_overrides(path="airport_overrides.json"):
 
     return reidentifications, excluded_airports
 
+def load_known_airports(path="reference/airports.csv"):
+    airports = pd.read_csv(
+        path,
+        low_memory=False,
+    )
+
+    known_airports = set()
+
+    for column in ["ident", "gps_code"]:
+        if column in airports.columns:
+            values = (
+                airports[column]
+                .dropna()
+                .astype(str)
+                .str.strip()
+                .str.upper()
+            )
+
+            known_airports.update(values)
+
+    return known_airports
+
 args = parse_args()
 validate_args(args)
 
 AIRPORT_REIDENTIFICATIONS, EXCLUDED_AIRPORTS = load_airport_overrides()
+KNOWN_AIRPORTS = load_known_airports()
 
 FILE = args.input
 AIRPORT = args.airport.upper()
@@ -218,6 +241,28 @@ df = pd.read_parquet(
 
 print(f"Loaded {len(df):,} flights.")
 
+print("Pre-filtering airport traffic...")
+
+origin_text = (
+    df["Track_Origin_ApplicableAirports"]
+    .astype(str)
+)
+
+destination_text = (
+    df["Track_Destination_ApplicableAirports"]
+    .astype(str)
+)
+
+airport_mask = (
+    origin_text.str.contains(AIRPORT, na=False)
+    | destination_text.str.contains(AIRPORT, na=False)
+)
+
+df = df[airport_mask].copy()
+
+print(
+    f"Flights mentioning {AIRPORT}: {len(df):,}"
+)
 
 # ---------------------------------------------------------
 # PARSE AIRPORT DATA
@@ -436,6 +481,47 @@ if reidentification_counts:
 
     for (old, new), count in reidentification_counts.items():
         print(f"  {old} -> {new}: {count}")      
+
+# ---------------------------------------------------------
+# REMOVE UNKNOWN AIRPORTS
+# ---------------------------------------------------------
+
+unknown_origin_mask = ~combined["origin"].isin(KNOWN_AIRPORTS)
+unknown_destination_mask = ~combined["destination"].isin(KNOWN_AIRPORTS)
+
+unknown_matches = pd.concat([
+    combined.loc[
+        unknown_origin_mask,
+        "origin"
+    ],
+    combined.loc[
+        unknown_destination_mask,
+        "destination"
+    ],
+])
+
+unknown_breakdown = unknown_matches.value_counts()
+
+unknown_airport_mask = (
+    unknown_origin_mask
+    | unknown_destination_mask
+)
+
+unknown_airport_count = unknown_airport_mask.sum()
+
+combined = combined[
+    ~unknown_airport_mask
+].copy()
+
+print(
+    f"Removed unknown-airport flights: {unknown_airport_count:,}"
+)
+
+if not unknown_breakdown.empty:
+    print("\nUnknown airport breakdown:")
+
+    for airport, count in unknown_breakdown.items():
+        print(f"  {airport}: {count}")
 
 # Remove same-airport/local flights.
 # VICE needs a valid city pair for route matching.
