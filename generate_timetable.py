@@ -304,28 +304,6 @@ def is_valid_text(value):
 
     return value not in ("", "-", "nan", "None")
 
-def determine_cargo(row):
-    """
-    First-pass cargo classifier.
-
-    Dedicated cargo carriers are marked true.
-
-    We can improve mixed passenger/cargo carrier detection
-    after inspecting the results.
-    """
-
-    airline = str(row["Airline"]).strip().upper()
-
-    if airline in CARGO_AIRLINES:
-        return True
-
-    detailed = str(row["AC_Type_Detailed"]).lower()
-
-    if "freighter" in detailed:
-        return True
-
-    return False
-
 # ---------------------------------------------------------
 # LOAD DATA
 # ---------------------------------------------------------
