@@ -1,0 +1,16 @@
+{
+  "dedicated_cargo_airlines": [
+    "UPS",
+    "FDX",
+    "GTI",
+    "ABX",
+    "CKS",
+    "CLX",
+    "CAO",
+    "CKK"
+  ],
+  "freighter_keywords": [
+    "freighter",
+    "cargo"
+  ]
+}
