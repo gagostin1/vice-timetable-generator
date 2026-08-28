@@ -35,3 +35,23 @@ Python 3.11+ recommended.
 Install dependencies with:
 
 pip install -r requirements.txt
+
+## Airport Overrides
+
+Historical flight data may contain airport identifiers that have since
+changed or airports that are not recognized by VICE.
+
+These are handled through `airport_overrides.json`.
+
+Example:
+
+```json
+{
+  "reidentifications": {
+    "KPBI": "KDJT"
+  },
+  "excluded_airports": [
+    "MUPR",
+    "LGHL"
+  ]
+}
