@@ -9,9 +9,11 @@ The generator reads large quarterly Parquet datasets, filters traffic for a sele
 - Reads quarterly historical flight data from Parquet files
 - Filters traffic for a selected airport
 - Selects flights from a specific local calendar date
+- Automatically detects the airport's IANA timezone from airport coordinates
+- Supports an optional manual timezone override
 - Converts UTC timestamps to the airport's local timezone
 - Generates VICE-compatible timetable CSV files
-- Supports command-line arguments for airport, date, timezone, input file, and timetable name
+- Supports command-line arguments for airport, date, input file, timetable name, and optional timezone
 - Removes ambiguous airport records
 - Removes same-airport flights
 - Removes records with invalid or missing callsigns and aircraft types
@@ -25,7 +27,7 @@ The generator reads large quarterly Parquet datasets, filters traffic for a sele
 
 ## Output Format
 
-VICE timetable CSV files use the following columns:
+VICE timetable CSV files use:
 
 ```text
 callsign,origin,destination,aircraft_type,time,cargo
@@ -55,6 +57,7 @@ Current dependencies:
 ```text
 pandas
 pyarrow
+timezonefinder
 ```
 
 ## Project Structure
@@ -75,11 +78,7 @@ vice-timetable-generator/
 └── output/
 ```
 
-The `data/` and `output/` directories are ignored by Git.
-
-Large source Parquet datasets should be placed in `data/`.
-
-Generated VICE timetables are written to `output/`.
+The `data/` and `output/` directories are ignored by Git. Large Parquet source files belong in `data/`, and generated VICE timetables are written to `output/`.
 
 ## Data Source
 
@@ -87,33 +86,21 @@ The generator was developed for use with the historical aircraft flight schedule
 
 https://github.com/MrAirspace/aircraft-flight-schedules
 
-These datasets contain historical ADS-B-derived flight records including:
-
-- Callsign
-- Airline
-- Aircraft type
-- Origin airport candidates
-- Destination airport candidates
-- Approximate runway departure time
-- Approximate runway arrival time
-
-The source timestamps are stored in UTC.
+These datasets contain historical ADS-B-derived flight records including callsign, airline, aircraft type, origin/destination airport candidates, and approximate runway departure and arrival timestamps. Source timestamps are stored in UTC.
 
 ## Airport Reference Data
 
-Airport validation uses the OurAirports airport dataset stored at:
+Airport validation and automatic timezone detection use the OurAirports dataset stored at:
 
 ```text
 reference/airports.csv
 ```
 
-OurAirports is also used as an airport data source by VICE.
+The generator builds a set of known airport identifiers from the `ident` and `gps_code` fields.
 
-The generator builds a set of known airport identifiers from the `ident` and `gps_code` fields in this file.
+Flights involving airports not found in the reference dataset are automatically removed before export.
 
-Flights involving airports that are not found in the reference dataset are automatically removed before the timetable is exported.
-
-Example cleanup output:
+Example:
 
 ```text
 Removed unknown-airport flights: 3
@@ -122,6 +109,30 @@ Unknown airport breakdown:
   MUPR: 2
   LGHL: 1
 ```
+
+## Automatic Timezone Detection
+
+The generator automatically determines the timetable airport's IANA timezone using latitude and longitude from the OurAirports reference dataset.
+
+Example:
+
+```text
+Airport configuration:
+Airport:  KCLT
+Name:     Charlotte Douglas International Airport
+Timezone: America/New_York
+Source:   Automatically detected
+```
+
+The `--timezone` argument is optional and can still be used as a manual override.
+
+Example:
+
+```bash
+python generate_timetable.py   --input "./data/2026_Q2_detailed_github.parquet"   --airport KCLT   --date 2026-06-18   --timezone America/New_York   --name "Summer Weekday"
+```
+
+If automatic timezone detection fails because airport coordinate data is unavailable, use `--timezone` to specify it manually.
 
 ## Airport Overrides
 
@@ -154,7 +165,7 @@ Example:
 KPBI -> KDJT
 ```
 
-The generator reports how many airport references were changed:
+The generator reports how many references were changed:
 
 ```text
 Airport reidentifications:
@@ -165,29 +176,14 @@ Airport reidentifications:
 
 The `excluded_airports` list can be used for airports that should always be removed manually.
 
-Example:
-
-```json
-{
-  "reidentifications": {
-    "KPBI": "KDJT"
-  },
-  "excluded_airports": [
-    "XXXX"
-  ]
-}
-```
-
 Flights involving excluded airports are removed before export and reported in the cleanup summary.
 
 ## Usage
 
-The generator is run from the command line.
-
 Example:
 
 ```bash
-python generate_timetable.py --input "./data/2026_Q2_detailed_github.parquet" --airport KCLT --date 2026-06-18 --timezone America/New_York --name "Summer Weekday"
+python generate_timetable.py   --input "./data/2026_Q2_detailed_github.parquet"   --airport KCLT   --date 2026-06-18   --name "Summer Weekday"
 ```
 
 This produces:
@@ -198,67 +194,30 @@ output/KCLT Summer Weekday.csv
 
 ### Arguments
 
-`--input`
-
+`--input`  
 Path to the source Parquet dataset.
 
-`--airport`
+`--airport`  
+Four-letter ICAO identifier for the timetable airport, e.g. `KCLT`.
 
-Four-letter ICAO identifier for the timetable airport.
+`--date`  
+Local calendar date in `YYYY-MM-DD` format.
 
-Example:
+`--timezone`  
+Optional IANA timezone override. If omitted, the timezone is detected automatically from airport reference data.
 
-```text
-KCLT
-```
+`--name`  
+Name used for the generated timetable file, e.g. `Summer Weekday`.
 
-`--date`
-
-Local calendar date to use for the timetable.
-
-Format:
+## Example Output
 
 ```text
-YYYY-MM-DD
-```
+Airport configuration:
+Airport:  KCLT
+Name:     Charlotte Douglas International Airport
+Timezone: America/New_York
+Source:   Automatically detected
 
-Example:
-
-```text
-2026-06-18
-```
-
-`--timezone`
-
-IANA timezone for the airport.
-
-Example:
-
-```text
-America/New_York
-```
-
-`--name`
-
-Name used for the generated timetable file.
-
-Example:
-
-```text
-Summer Weekday
-```
-
-## Example
-
-Command:
-
-```bash
-python generate_timetable.py --input "./data/2026_Q2_detailed_github.parquet" --airport KCLT --date 2026-06-18 --timezone America/New_York --name "Summer Weekday"
-```
-
-Example output:
-
-```text
 Loading flight dataset...
 Loaded 14,040,611 flights.
 Pre-filtering airport traffic...
@@ -297,9 +256,11 @@ Cargo:            9
 
 ## Timetable Generation Process
 
-The generator processes traffic in the following order:
-
 ```text
+Read airport metadata
+        ↓
+Automatically determine timezone
+        ↓
 Load quarterly flight dataset
         ↓
 Pre-filter flights mentioning selected airport
@@ -331,7 +292,7 @@ Export VICE-compatible CSV
 
 ## VICE Integration
 
-Generated timetable files should be placed in the VICE repository under:
+Place generated timetable files under:
 
 ```text
 resources/traffic/timetables/<ICAO>/
@@ -349,14 +310,14 @@ VICE automatically discovers timetable CSV files in the airport directory and ma
 
 This project is under active development.
 
-Current development priorities include:
+Current priorities include:
 
 - Improved cargo classification
-- Stronger airport validation
 - Automatic airport reference updates
-- Better cleanup reporting
 - Additional timetable analysis tools
-- Improved support for generating timetables for multiple airports and dates
+- Multi-airport and multi-date generation
+- Automated tests and CI
+- Packaging as an installable CLI
 
 ## Disclaimer
 
