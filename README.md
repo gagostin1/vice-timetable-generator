@@ -2,7 +2,7 @@
 
 A Python utility for generating VICE-compatible airport timetables from historical flight schedule data.
 
-The generator reads large quarterly Parquet datasets, filters traffic for a selected airport and date, converts event times to local airport time, validates airport identifiers, performs cleanup, and exports a CSV compatible with VICE timetable traffic.
+The generator reads large quarterly Parquet datasets, filters traffic for a selected airport and date, converts event times to local airport time, validates airport identifiers, performs cleanup, classifies cargo traffic, and exports a CSV compatible with VICE timetable traffic.
 
 ## Current Features
 
@@ -21,8 +21,9 @@ The generator reads large quarterly Parquet datasets, filters traffic for a sele
 - Validates airport identifiers against an OurAirports reference dataset
 - Automatically removes flights involving unknown airports
 - Supports manual airport exclusions
-- Reports all cleanup actions during generation
-- Performs basic cargo classification
+- Uses configurable cargo-classification rules
+- Reports cargo-classification reasons and an audit list of cargo flights
+- Reports cleanup actions during generation
 - Pre-filters large datasets before parsing to improve performance
 
 ## Output Format
@@ -70,6 +71,7 @@ vice-timetable-generator/
 ├── find_clt.py
 ├── inspect_dataset.py
 ├── airport_overrides.json
+├── cargo_rules.json
 ├── requirements.txt
 ├── README.md
 ├── reference/
@@ -86,7 +88,9 @@ The generator was developed for use with the historical aircraft flight schedule
 
 https://github.com/MrAirspace/aircraft-flight-schedules
 
-These datasets contain historical ADS-B-derived flight records including callsign, airline, aircraft type, origin/destination airport candidates, and approximate runway departure and arrival timestamps. Source timestamps are stored in UTC.
+These datasets contain historical ADS-B-derived flight records including callsign, airline, aircraft type, origin/destination airport candidates, and approximate runway departure and arrival timestamps.
+
+Source timestamps are stored in UTC.
 
 ## Airport Reference Data
 
@@ -129,7 +133,12 @@ The `--timezone` argument is optional and can still be used as a manual override
 Example:
 
 ```bash
-python generate_timetable.py   --input "./data/2026_Q2_detailed_github.parquet"   --airport KCLT   --date 2026-06-18   --timezone America/New_York   --name "Summer Weekday"
+python generate_timetable.py \
+  --input "./data/2026_Q2_detailed_github.parquet" \
+  --airport KCLT \
+  --date 2026-06-18 \
+  --timezone America/New_York \
+  --name "Summer Weekday"
 ```
 
 If automatic timezone detection fails because airport coordinate data is unavailable, use `--timezone` to specify it manually.
@@ -178,12 +187,73 @@ The `excluded_airports` list can be used for airports that should always be remo
 
 Flights involving excluded airports are removed before export and reported in the cleanup summary.
 
+## Cargo Classification
+
+Cargo classification rules are stored in:
+
+```text
+cargo_rules.json
+```
+
+Example:
+
+```json
+{
+  "dedicated_cargo_airlines": [
+    "UPS",
+    "FDX",
+    "GTI",
+    "ABX",
+    "CKS",
+    "CLX",
+    "CAO",
+    "CKK"
+  ],
+  "freighter_keywords": [
+    "freighter",
+    "cargo"
+  ]
+}
+```
+
+Flights are marked as cargo when either:
+
+- the airline code is listed as a dedicated cargo carrier, or
+- the detailed aircraft description contains a configured freighter keyword.
+
+The generator keeps cargo-classification rules outside the Python source so they can be adjusted without modifying code.
+
+During generation, it prints a summary of how cargo traffic was classified:
+
+```text
+Cargo classification summary:
+  passenger/default: 1,143
+  dedicated cargo carrier: 9
+```
+
+It also prints an audit list showing every flight classified as cargo, including the callsign, airline, aircraft type, origin, destination, and classification reason.
+
+Example:
+
+```text
+Cargo flights:
+Callsign Airline AC_Type origin destination cargo_reason
+FDX1635  FDX     B763    KCLT   KIND        dedicated cargo carrier
+UPS1283  UPS     A306    KCLT   KPHL        dedicated cargo carrier
+```
+
+The VICE timetable output schema remains unchanged; only the final `cargo` boolean is written to the CSV.
+
 ## Usage
 
 Example:
 
 ```bash
-python generate_timetable.py   --input "./data/2026_Q2_detailed_github.parquet"   --airport KCLT   --date 2026-06-18   --name "Summer Weekday"
+python generate_timetable.py \
+  --input "./data/2026_Q2_detailed_github.parquet" \
+  --airport KCLT \
+  --date 2026-06-18 \
+  --name "Summer Weekday"
 ```
 
 This produces:
@@ -242,6 +312,10 @@ Unknown airport breakdown:
 Removed same-airport flights: 18
 Removed invalid records: 18
 
+Cargo classification summary:
+  passenger/default: 1,143
+  dedicated cargo carrier: 9
+
 ==================================================
 VICE TIMETABLE CREATED
 ==================================================
@@ -287,6 +361,8 @@ Remove invalid records
         ↓
 Classify cargo traffic
         ↓
+Report cargo audit
+        ↓
 Export VICE-compatible CSV
 ```
 
@@ -312,7 +388,7 @@ This project is under active development.
 
 Current priorities include:
 
-- Improved cargo classification
+- Representative-day selection
 - Automatic airport reference updates
 - Additional timetable analysis tools
 - Multi-airport and multi-date generation

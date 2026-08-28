@@ -1,5 +1,4 @@
 from html import parser
-
 import pandas as pd
 import ast
 from pathlib import Path
@@ -192,11 +191,35 @@ def determine_timezone(airport_metadata, override=None):
 
     return timezone
 
+def load_cargo_rules(path="cargo_rules.json"):
+    config_path = Path(path)
+
+    if not config_path.exists():
+        raise SystemExit(
+            f'Error: cargo rules file not found: "{path}"'
+        )
+
+    with config_path.open("r", encoding="utf-8") as file:
+        config = json.load(file)
+
+    dedicated_cargo_airlines = {
+        str(code).strip().upper()
+        for code in config.get("dedicated_cargo_airlines", [])
+    }
+
+    freighter_keywords = {
+        str(keyword).strip().lower()
+        for keyword in config.get("freighter_keywords", [])
+    }
+
+    return dedicated_cargo_airlines, freighter_keywords
+
 args = parse_args()
 validate_args(args)
 
 AIRPORT_REIDENTIFICATIONS, EXCLUDED_AIRPORTS = load_airport_overrides()
 KNOWN_AIRPORTS = load_known_airports()
+DEDICATED_CARGO_AIRLINES, FREIGHTER_KEYWORDS = load_cargo_rules()
 
 FILE = args.input
 AIRPORT = args.airport.upper()
@@ -222,18 +245,17 @@ else:
 OUTPUT_DIR = Path("output")
 OUTPUT_FILE = OUTPUT_DIR / f"{AIRPORT} {args.name}.csv"
 
-# Dedicated cargo airline ICAO codes.
+def classify_cargo(row):
+    airline = str(row["Airline"]).strip().upper()
+    detailed = str(row["AC_Type_Detailed"]).strip().lower()
 
-CARGO_AIRLINES = {
-    "UPS",  # UPS
-    "FDX",  # FedEx
-    "GTI",  # Atlas Air
-    "ABX",  # ABX Air
-    "CKS",  # Kalitta Air
-    "CLX",  # Cargolux
-    "CAO",  # Air China Cargo
-    "CKK",  # China Cargo Airlines
-}
+    if airline in DEDICATED_CARGO_AIRLINES:
+        return True, "dedicated cargo carrier"
+
+    if any(keyword in detailed for keyword in FREIGHTER_KEYWORDS):
+        return True, "freighter aircraft type"
+
+    return False, "passenger/default"
 
 # ---------------------------------------------------------
 # HELPERS
@@ -270,7 +292,6 @@ def parse_airports(value):
     except (ValueError, SyntaxError):
         return [text]
 
-
 def is_valid_text(value):
     """
     Reject obviously missing values.
@@ -282,7 +303,6 @@ def is_valid_text(value):
     value = str(value).strip()
 
     return value not in ("", "-", "nan", "None")
-
 
 def determine_cargo(row):
     """
@@ -305,7 +325,6 @@ def determine_cargo(row):
         return True
 
     return False
-
 
 # ---------------------------------------------------------
 # LOAD DATA
@@ -370,13 +389,9 @@ df["destination_airports"] = (
     .apply(parse_airports)
 )
 
-
 # ---------------------------------------------------------
 # REQUIRE UNAMBIGUOUS ROUTES
 # ---------------------------------------------------------
-
-# CLT must be the single known origin,
-# and destination must also resolve to exactly one airport.
 
 departure_mask = (
     df["origin_airports"].apply(
@@ -388,10 +403,6 @@ departure_mask = (
     )
 )
 
-
-# CLT must be the single known destination,
-# and origin must also resolve to exactly one airport.
-
 arrival_mask = (
     df["destination_airports"].apply(
         lambda x: x == [AIRPORT]
@@ -402,10 +413,8 @@ arrival_mask = (
     )
 )
 
-
 departures = df[departure_mask].copy()
 arrivals = df[arrival_mask].copy()
-
 
 # ---------------------------------------------------------
 # EVENT TIMES
@@ -423,7 +432,6 @@ arrivals["event_time_utc"] = pd.to_datetime(
     errors="coerce",
 )
 
-
 timezone = ZoneInfo(TIMEZONE)
 
 departures["event_time_local"] = (
@@ -436,7 +444,6 @@ arrivals["event_time_local"] = (
     .dt.tz_convert(timezone)
 )
 
-
 # ---------------------------------------------------------
 # FILTER TARGET DATE
 # ---------------------------------------------------------
@@ -447,13 +454,11 @@ departures = departures[
     == TARGET_DATE
 ].copy()
 
-
 arrivals = arrivals[
     arrivals["event_time_local"]
     .dt.strftime("%Y-%m-%d")
     == TARGET_DATE
 ].copy()
-
 
 print(
     f"\nRaw usable traffic for {TARGET_DATE}:"
@@ -467,7 +472,6 @@ print(
     f"Arrivals:   {len(arrivals):,}"
 )
 
-
 # ---------------------------------------------------------
 # COMBINE FLIGHTS
 # ---------------------------------------------------------
@@ -480,7 +484,6 @@ departures["destination"] = departures[
     "destination_airports"
 ].apply(lambda x: x[0])
 
-
 arrivals["origin"] = arrivals[
     "origin_airports"
 ].apply(lambda x: x[0])
@@ -488,7 +491,6 @@ arrivals["origin"] = arrivals[
 arrivals["destination"] = arrivals[
     "destination_airports"
 ].apply(lambda x: x[0])
-
 
 combined = pd.concat(
     [departures, arrivals],
@@ -653,7 +655,6 @@ print(
     f"Removed invalid records: {removed:,}"
 )
 
-
 # ---------------------------------------------------------
 # BUILD VICE FIELDS
 # ---------------------------------------------------------
@@ -665,7 +666,6 @@ combined["callsign"] = (
     .str.upper()
 )
 
-
 combined["aircraft_type"] = (
     combined["AC_Type"]
     .astype(str)
@@ -673,18 +673,19 @@ combined["aircraft_type"] = (
     .str.upper()
 )
 
-
 combined["time"] = (
     combined["event_time_local"]
     .dt.strftime("%H:%M")
 )
 
-
-combined["cargo"] = combined.apply(
-    determine_cargo,
+cargo_results = combined.apply(
+    classify_cargo,
     axis=1,
+    result_type="expand",
 )
 
+combined["cargo"] = cargo_results[0]
+combined["cargo_reason"] = cargo_results[1]
 
 # ---------------------------------------------------------
 # BUILD FINAL VICE TABLE
@@ -701,7 +702,6 @@ vice = combined[
     ]
 ].copy()
 
-
 # VICE examples use lowercase true/false rather than
 # Python's True/False representation.
 
@@ -712,13 +712,43 @@ vice["cargo"] = vice["cargo"].map(
     }
 )
 
+cargo_summary = (
+    combined["cargo_reason"]
+    .value_counts()
+)
 
+print("\nCargo classification summary:")
+
+for reason, count in cargo_summary.items():
+    print(f"  {reason}: {count:,}")
+
+cargo_flights = combined[
+    combined["cargo"]
+][
+    [
+        "Callsign",
+        "Airline",
+        "AC_Type",
+        "AC_Type_Detailed",
+        "origin",
+        "destination",
+        "cargo_reason",
+    ]
+]
+
+if not cargo_flights.empty:
+    print("\nCargo flights:")
+
+    print(
+        cargo_flights.to_string(
+            index=False
+        )
+    )
 # Sort chronologically.
 
 vice = vice.sort_values(
     ["time", "callsign"]
 ).reset_index(drop=True)
-
 
 # ---------------------------------------------------------
 # OUTPUT
@@ -729,12 +759,10 @@ OUTPUT_DIR.mkdir(
     exist_ok=True,
 )
 
-
 vice.to_csv(
     OUTPUT_FILE,
     index=False,
 )
-
 
 # ---------------------------------------------------------
 # SUMMARY
@@ -780,7 +808,6 @@ print(
 print(
     OUTPUT_FILE.resolve()
 )
-
 
 print("\nFirst 20 timetable entries:\n")
 
