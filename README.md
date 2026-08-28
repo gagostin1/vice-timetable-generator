@@ -231,7 +231,7 @@ Cargo classification summary:
   dedicated cargo carrier: 9
 ```
 
-It also prints an audit list showing every flight classified as cargo, including the callsign, airline, aircraft type, origin, destination, and classification reason.
+The generator always reports cargo classification totals. Use `--show-cargo` to print the detailed cargo-flight audit list
 
 Example:
 
@@ -278,6 +278,9 @@ Optional IANA timezone override. If omitted, the timezone is detected automatica
 
 `--name`  
 Name used for the generated timetable file, e.g. `Summer Weekday`.
+
+`--show-cargo`
+Optional flag that prints the full cargo-flight audit list. By default, only the cargo classification summary is shown.
 
 ## Example Output
 
