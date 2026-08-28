@@ -279,7 +279,7 @@ Optional IANA timezone override. If omitted, the timezone is detected automatica
 `--name`  
 Name used for the generated timetable file, e.g. `Summer Weekday`.
 
-`--show-cargo`
+`--show-cargo`  
 Optional flag that prints the full cargo-flight audit list. By default, only the cargo classification summary is shown.
 
 ## Example Output
