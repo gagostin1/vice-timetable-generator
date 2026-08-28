@@ -5,6 +5,7 @@ from pathlib import Path
 import argparse
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+import json
 
 # ---------------------------------------------------------
 # SETTINGS
@@ -81,8 +82,24 @@ def validate_args(args):
             f'Error: unknown timezone "{args.timezone}".'
         )
 
+def load_airport_overrides(path="airport_overrides.json"):
+    config_path = Path(path)
+
+    if not config_path.exists():
+        return {}, set()
+
+    with config_path.open("r", encoding="utf-8") as file:
+        config = json.load(file)
+
+    reidentifications = config.get("reidentifications", {})
+    excluded_airports = set(config.get("excluded_airports", []))
+
+    return reidentifications, excluded_airports
+
 args = parse_args()
 validate_args(args)
+
+AIRPORT_REIDENTIFICATIONS, EXCLUDED_AIRPORTS = load_airport_overrides()
 
 FILE = args.input
 AIRPORT = args.airport.upper()
@@ -93,7 +110,7 @@ OUTPUT_DIR = Path("output")
 OUTPUT_FILE = OUTPUT_DIR / f"{AIRPORT} {args.name}.csv"
 
 # Dedicated cargo airline ICAO codes.
-# We can expand this after auditing the generated timetable.
+
 CARGO_AIRLINES = {
     "UPS",  # UPS
     "FDX",  # FedEx
@@ -103,16 +120,6 @@ CARGO_AIRLINES = {
     "CLX",  # Cargolux
     "CAO",  # Air China Cargo
     "CKK",  # China Cargo Airlines
-}
-
-# Airport identifiers that have changed since the historical data
-AIRPORT_REIDENTIFICATIONS = {
-    "KPBI": "KDJT",
-}
-
-EXCLUDED_AIRPORTS = {
-    "MUPR", 
-    "LGHL",
 }
 
 # ---------------------------------------------------------
@@ -357,6 +364,25 @@ combined = pd.concat(
 # UPDATE HISTORICAL AIRPORT IDENTIFIERS
 # ---------------------------------------------------------
 
+reidentified_origin_mask = combined["origin"].isin(AIRPORT_REIDENTIFICATIONS)
+reidentified_destination_mask = combined["destination"].isin(AIRPORT_REIDENTIFICATIONS)
+
+reidentified_count = (
+    reidentified_origin_mask.sum()
+    + reidentified_destination_mask.sum()
+)
+
+reidentification_counts = {}
+
+for old, new in AIRPORT_REIDENTIFICATIONS.items():
+    count = (
+        (combined["origin"] == old).sum()
+        + (combined["destination"] == old).sum()
+    )
+
+    if count:
+        reidentification_counts[(old, new)] = count
+
 combined["origin"] = combined["origin"].replace(
     AIRPORT_REIDENTIFICATIONS
 )
@@ -366,6 +392,19 @@ combined["destination"] = combined["destination"].replace(
 )
 
 # Remove airports known to be invalid for VICE / bad historical matches
+
+excluded_matches = pd.concat([
+    combined.loc[
+        combined["origin"].isin(EXCLUDED_AIRPORTS),
+        "origin"
+    ],
+    combined.loc[
+        combined["destination"].isin(EXCLUDED_AIRPORTS),
+        "destination"
+    ],
+])
+
+excluded_breakdown = excluded_matches.value_counts()
 
 bad_airport_mask = (
     combined["origin"].isin(EXCLUDED_AIRPORTS)
@@ -379,8 +418,24 @@ combined = combined[
 ].copy()
 
 print(
+    f"Reidentified airport references: {reidentified_count:,}"
+)
+
+print(
     f"Removed excluded-airport flights: {bad_airport_count:,}"
 )
+
+if not excluded_breakdown.empty:
+    print("\nExcluded airport breakdown:")
+
+    for airport, count in excluded_breakdown.items():
+        print(f"  {airport}: {count}")
+
+if reidentification_counts:
+    print("\nAirport reidentifications:")
+
+    for (old, new), count in reidentification_counts.items():
+        print(f"  {old} -> {new}: {count}")      
 
 # Remove same-airport/local flights.
 # VICE needs a valid city pair for route matching.
