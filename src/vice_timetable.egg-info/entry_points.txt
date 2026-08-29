@@ -1,0 +1,2 @@
+[console_scripts]
+vice-timetable = vice_timetable.cli:main

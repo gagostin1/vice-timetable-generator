@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "vice-timetable"
+version = "0.1.0"
+description = "Tools for generating VICE traffic timetables from historical flight data."
+requires-python = ">=3.11"
+dependencies = [
+    "pandas",
+    "pyarrow",
+    "timezonefinder",
+]
+
+
+[project.scripts]
+vice-timetable = "vice_timetable.cli:main"
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
