@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from generate_timetable import (
+from vice_timetable.generator import (
     build_known_airports,
     generate_timetable,
     load_airport_overrides,
@@ -28,8 +28,8 @@ def test_generate_timetable_end_to_end(tmp_path, monkeypatch):
 
     # Redirect generated output so tests don't touch the normal output folder.
     monkeypatch.setattr(
-        "generate_timetable.OUTPUT_DIR",
-        tmp_path,
+    "vice_timetable.generator.OUTPUT_DIR",
+    tmp_path,
     )
 
     result = generate_timetable(

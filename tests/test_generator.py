@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from generate_timetable import (
+from vice_timetable.generator import (
     parse_airports,
     is_valid_text,
     classify_cargo,

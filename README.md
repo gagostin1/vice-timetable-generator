@@ -1,8 +1,8 @@
 # VICE Timetable Generator
 
-A Python utility for generating VICE-compatible airport timetables from historical flight schedule data.
+A Python utility for generating VICE-compatible airport timetables from historical flight schedule data and identifying representative traffic days.
 
-The generator reads large quarterly Parquet datasets, filters traffic for a selected airport and date, converts event times to local airport time, validates airport identifiers, performs cleanup, classifies cargo traffic, and exports a CSV compatible with VICE timetable traffic.
+The project reads large quarterly Parquet datasets, filters traffic for a selected airport and date, converts event times to local airport time, validates airport identifiers, performs cleanup, classifies cargo traffic, exports VICE-compatible CSV files, and can analyze weekday traffic to recommend a representative source date.
 
 ## Current Features
 
@@ -13,7 +13,9 @@ The generator reads large quarterly Parquet datasets, filters traffic for a sele
 - Supports an optional manual timezone override
 - Converts UTC timestamps to the airport's local timezone
 - Generates VICE-compatible timetable CSV files
-- Supports command-line arguments for airport, date, input file, timetable name, and optional timezone
+- Provides an installable `vice-timetable` CLI
+- Supports `generate` and `pick-day` subcommands
+- Keeps legacy direct-script entry points for compatibility
 - Removes ambiguous airport records
 - Removes same-airport flights
 - Removes records with invalid or missing callsigns and aircraft types
@@ -22,9 +24,12 @@ The generator reads large quarterly Parquet datasets, filters traffic for a sele
 - Automatically removes flights involving unknown airports
 - Supports manual airport exclusions
 - Uses configurable cargo-classification rules
-- Reports cargo-classification reasons and an audit list of cargo flights
+- Reports cargo-classification reasons and an optional detailed cargo audit
 - Reports cleanup actions during generation
 - Pre-filters large datasets before parsing to improve performance
+- Includes a representative-day picker that scores weekdays using departure, arrival, and total-operation medians
+- Includes automated unit and end-to-end tests
+- Runs tests automatically in GitHub Actions CI
 
 ## Output Format
 
@@ -47,13 +52,15 @@ Times are expressed in local time at the timetable airport.
 
 Python 3.11 or newer is recommended.
 
-Install dependencies with:
+Install the project in editable mode:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -e .
 ```
 
-Current dependencies:
+This installs the project dependencies and exposes the `vice-timetable` command.
+
+Current runtime dependencies include:
 
 ```text
 pandas
@@ -61,26 +68,45 @@ pyarrow
 timezonefinder
 ```
 
+Development/testing also uses:
+
+```text
+pytest
+```
+
 ## Project Structure
 
 ```text
 vice-timetable-generator/
+├── pyproject.toml
 ├── generate_timetable.py
-├── analyze_day.py
-├── analyze_clt_dates.py
-├── find_clt.py
-├── inspect_dataset.py
+├── pick_representative_day.py
 ├── airport_overrides.json
 ├── cargo_rules.json
 ├── requirements.txt
 ├── README.md
+├── src/
+│   └── vice_timetable/
+│       ├── __init__.py
+│       ├── cli.py
+│       ├── generator.py
+│       └── representative_day.py
+├── tests/
+│   ├── test_generator.py
+│   ├── test_end_to_end.py
+│   ├── fixtures/
+│   │   └── sample_flights.parquet
+│   └── expected/
+│       └── KCLT Test.csv
 ├── reference/
 │   └── airports.csv
 ├── data/
 └── output/
 ```
 
-The `data/` and `output/` directories are ignored by Git. Large Parquet source files belong in `data/`, and generated VICE timetables are written to `output/`.
+The `data/` and `output/` directories are ignored by Git. Large Parquet source files belong in `data/`, while the small Parquet fixture under `tests/fixtures/` is intentionally tracked for automated testing.
+
+The root-level `generate_timetable.py` and `pick_representative_day.py` files are compatibility wrappers. The primary implementation now lives under `src/vice_timetable/`.
 
 ## Data Source
 
@@ -100,7 +126,7 @@ Airport validation and automatic timezone detection use the OurAirports dataset 
 reference/airports.csv
 ```
 
-The generator builds a set of known airport identifiers from the `ident` and `gps_code` fields.
+The project builds a set of known airport identifiers from the `ident` and `gps_code` fields.
 
 Flights involving airports not found in the reference dataset are automatically removed before export.
 
@@ -116,7 +142,7 @@ Unknown airport breakdown:
 
 ## Automatic Timezone Detection
 
-The generator automatically determines the timetable airport's IANA timezone using latitude and longitude from the OurAirports reference dataset.
+The project automatically determines the selected airport's IANA timezone using latitude and longitude from the OurAirports reference dataset.
 
 Example:
 
@@ -133,12 +159,7 @@ The `--timezone` argument is optional and can still be used as a manual override
 Example:
 
 ```bash
-python generate_timetable.py \
-  --input "./data/2026_Q2_detailed_github.parquet" \
-  --airport KCLT \
-  --date 2026-06-18 \
-  --timezone America/New_York \
-  --name "Summer Weekday"
+vice-timetable generate   --input "./data/2026_Q2_detailed_github.parquet"   --airport KCLT   --date 2026-06-18   --timezone America/New_York   --name "Summer Weekday"
 ```
 
 If automatic timezone detection fails because airport coordinate data is unavailable, use `--timezone` to specify it manually.
@@ -231,29 +252,36 @@ Cargo classification summary:
   dedicated cargo carrier: 9
 ```
 
-The generator always reports cargo classification totals. Use `--show-cargo` to print the detailed cargo-flight audit list
+The generator always reports cargo classification totals. Use `--show-cargo` to print the detailed cargo-flight audit list.
 
-Example:
+## CLI Usage
 
-```text
-Cargo flights:
-Callsign Airline AC_Type origin destination cargo_reason
-FDX1635  FDX     B763    KCLT   KIND        dedicated cargo carrier
-UPS1283  UPS     A306    KCLT   KPHL        dedicated cargo carrier
-```
-
-The VICE timetable output schema remains unchanged; only the final `cargo` boolean is written to the CSV.
-
-## Usage
-
-Example:
+After installation:
 
 ```bash
-python generate_timetable.py \
-  --input "./data/2026_Q2_detailed_github.parquet" \
-  --airport KCLT \
-  --date 2026-06-18 \
-  --name "Summer Weekday"
+python -m pip install -e .
+```
+
+the project exposes:
+
+```text
+vice-timetable
+├── generate
+└── pick-day
+```
+
+Use:
+
+```bash
+vice-timetable --help
+```
+
+to view available subcommands.
+
+### Generate a Timetable
+
+```bash
+vice-timetable generate   --input "./data/2026_Q2_detailed_github.parquet"   --airport KCLT   --date 2026-06-18   --name "Summer Weekday"
 ```
 
 This produces:
@@ -262,39 +290,65 @@ This produces:
 output/KCLT Summer Weekday.csv
 ```
 
-## Representative Day Picker
+Generator arguments:
 
-Use `pick_representative_day.py` to identify a weekday that best represents typical traffic for a selected airport and month.
+`--input` — Path to the source Parquet dataset.  
+`--airport` — Four-letter ICAO identifier, e.g. `KCLT`.  
+`--date` — Local calendar date in `YYYY-MM-DD` format.  
+`--timezone` — Optional IANA timezone override.  
+`--name` — Output timetable name. Defaults to `Timetable`.  
+`--show-cargo` — Prints the full cargo-flight audit list.
+
+### Representative Day Picker
+
+Use `pick-day` to identify a weekday that best represents typical traffic for a selected airport and optional month.
+
+```bash
+vice-timetable pick-day   --input "./data/2026_Q2_detailed_github.parquet"   --airport KCLT   --month 6
+```
+
+Representative-day arguments:
+
+`--input` — Path to the source Parquet dataset.  
+`--airport` — Four-letter ICAO identifier, e.g. `KCLT`.  
+`--timezone` — Optional IANA timezone override.  
+`--month` — Optional calendar month from 1 through 12.  
+`--top` — Number of candidate dates to display. Defaults to `10`.
+
+The representative-day picker applies the same major airport cleanup rules used by timetable generation, then calculates weekday medians for departures, arrivals, and total operations. Each candidate date receives a representative score based on its distance from those medians. Lower scores indicate a more representative day.
 
 Example:
 
+```text
+REPRESENTATIVE WEEKDAY ANALYSIS — KCLT — June
+
+Median weekday departures: 693
+Median weekday arrivals:   674
+Median weekday operations: 1,374
+
+Recommended date:
+  2026-06-03 (Wednesday)
+  Departures: 697
+  Arrivals:   681
+  Total:      1,378
+  Representative score: 14.5
+```
+
+## Legacy Direct-Script Usage
+
+The original entry points remain available as compatibility wrappers.
+
 ```bash
-python pick_representative_day.py \
-  --input "./data/2026_Q2_detailed_github.parquet" \
-  --airport KCLT \
-  --month 6
+python generate_timetable.py   --input "./data/2026_Q2_detailed_github.parquet"   --airport KCLT   --date 2026-06-18   --name "Summer Weekday"
+```
 
-### Arguments
+```bash
+python pick_representative_day.py   --input "./data/2026_Q2_detailed_github.parquet"   --airport KCLT   --month 6
+```
 
-`--input`  
-Path to the source Parquet dataset.
+For new usage, the `vice-timetable` CLI is preferred.
 
-`--airport`  
-Four-letter ICAO identifier for the timetable airport, e.g. `KCLT`.
-
-`--date`  
-Local calendar date in `YYYY-MM-DD` format.
-
-`--timezone`  
-Optional IANA timezone override. If omitted, the timezone is detected automatically from airport reference data.
-
-`--name`  
-Name used for the generated timetable file, e.g. `Summer Weekday`.
-
-`--show-cargo`  
-Optional flag that prints the full cargo-flight audit list. By default, only the cargo classification summary is shown.
-
-## Example Output
+## Example Generator Output
 
 ```text
 Airport configuration:
@@ -338,9 +392,9 @@ VICE TIMETABLE CREATED
 Airport:      KCLT
 Source date:  2026-06-18
 Flights:      1,152
-Departures:     558
-Arrivals:       594
-Cargo:            9
+Departures:   558
+Arrivals:     594
+Cargo:        9
 ```
 
 ## Timetable Generation Process
@@ -376,10 +430,22 @@ Remove invalid records
         ↓
 Classify cargo traffic
         ↓
-Report cargo audit
+Report cargo summary / optional audit
         ↓
 Export VICE-compatible CSV
 ```
+
+## Testing and CI
+
+Run the automated test suite with:
+
+```bash
+python -m pytest
+```
+
+The project includes unit tests for core helper behavior, an end-to-end timetable-generation regression test, a small deterministic Parquet fixture under `tests/fixtures/`, an expected VICE CSV output fixture, and GitHub Actions CI that runs tests automatically on pushes and pull requests.
+
+The current automated suite contains 9 passing tests.
 
 ## VICE Integration
 
@@ -401,14 +467,25 @@ VICE automatically discovers timetable CSV files in the airport directory and ma
 
 This project is under active development.
 
-Current priorities include:
+Completed foundations include:
 
-- Representative-day selection
-- Automatic airport reference updates
-- Additional timetable analysis tools
-- Multi-airport and multi-date generation
-- Automated tests and CI
-- Packaging as an installable CLI
+- representative-day selection
+- automated tests and GitHub Actions CI
+- installable Python packaging
+- unified `vice-timetable` CLI
+- generator and representative-day package modules
+- legacy compatibility wrappers
+- airport validation and cleanup
+- configurable cargo classification
+- automatic timezone detection
+
+Potential future work includes:
+
+- automatic airport reference updates
+- additional timetable analysis tools
+- multi-airport generation
+- multi-date or batch timetable generation
+- additional CLI ergonomics and packaging polish
 
 ## Disclaimer
 
