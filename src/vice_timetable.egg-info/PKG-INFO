@@ -1,8 +1,0 @@
-Metadata-Version: 2.4
-Name: vice-timetable
-Version: 0.1.0
-Summary: Tools for generating VICE traffic timetables from historical flight data.
-Requires-Python: >=3.11
-Requires-Dist: pandas
-Requires-Dist: pyarrow
-Requires-Dist: timezonefinder

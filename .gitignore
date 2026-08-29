@@ -9,3 +9,8 @@ output/
 
 # Allow small Parquet fixtures used by automated tests
 !tests/fixtures/*.parquet
+
+# Python package/build metadata
+*.egg-info/
+build/
+dist/
