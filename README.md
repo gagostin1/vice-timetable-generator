@@ -262,6 +262,18 @@ This produces:
 output/KCLT Summer Weekday.csv
 ```
 
+## Representative Day Picker
+
+Use `pick_representative_day.py` to identify a weekday that best represents typical traffic for a selected airport and month.
+
+Example:
+
+```bash
+python pick_representative_day.py \
+  --input "./data/2026_Q2_detailed_github.parquet" \
+  --airport KCLT \
+  --month 6
+
 ### Arguments
 
 `--input`  
