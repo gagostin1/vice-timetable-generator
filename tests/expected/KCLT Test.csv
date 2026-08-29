@@ -1,0 +1,5 @@
+callsign,origin,destination,aircraft_type,time,cargo
+AAL100,KCLT,KDFW,A321,08:00,false
+DAL200,KATL,KCLT,B738,10:00,false
+FDX300,KCLT,KMEM,B763,11:00,true
+AAL600,KCLT,KDJT,B38M,16:00,false
