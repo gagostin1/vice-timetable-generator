@@ -6,3 +6,6 @@ data/
 output/
 
 *.parquet
+
+# Allow small Parquet fixtures used by automated tests
+!tests/fixtures/*.parquet
