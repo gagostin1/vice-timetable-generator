@@ -1,14 +1,16 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 
-data/
-output/
+/data/
+/output/
 
 *.parquet
 
 # Allow small Parquet fixtures used by automated tests
-!tests/fixtures/*.parquet
+!tests/fixtures/
+!tests/fixtures/**/*.parquet
 
 # Python package/build metadata
 *.egg-info/
