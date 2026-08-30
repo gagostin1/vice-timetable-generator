@@ -1,17 +1,18 @@
 import argparse
-import ast
 from pathlib import Path
 from zoneinfo import ZoneInfo
-import json
 
 import pandas as pd
-from timezonefinder import TimezoneFinder
 
-
-BASE_DIR = Path(__file__).resolve().parents[2]
-AIRPORT_REFERENCE_FILE = BASE_DIR / "reference" / "airports.csv"
-TIMEZONE_FINDER = TimezoneFinder()
-AIRPORT_OVERRIDES_FILE = BASE_DIR / "airport_overrides.json"
+from vice_timetable.generator import (
+    build_known_airports,
+    determine_timezone,
+    get_airport_metadata,
+    is_valid_text,
+    load_airport_overrides,
+    load_airport_reference,
+    parse_airports,
+)
 
 
 def add_pick_day_arguments(parser):
@@ -68,177 +69,7 @@ def parse_args():
 
     return parser.parse_args()
 
-def parse_airports(value):
-    if value is None:
-        return []
 
-    if isinstance(value, (list, tuple)):
-        return list(value)
-
-    text = str(value).strip()
-
-    if text in ("", "-", "nan", "None"):
-        return []
-
-    try:
-        parsed = ast.literal_eval(text)
-
-        if isinstance(parsed, list):
-            return parsed
-
-        return [str(parsed)]
-
-    except (ValueError, SyntaxError):
-        return [text]
-
-
-def load_airport_reference():
-    if not AIRPORT_REFERENCE_FILE.exists():
-        raise SystemExit(
-            f'Error: airport reference file not found: '
-            f'"{AIRPORT_REFERENCE_FILE}"'
-        )
-
-    return pd.read_csv(
-        AIRPORT_REFERENCE_FILE,
-        low_memory=False,
-    )
-
-
-def get_airport_metadata(airports, airport_code):
-    airport_code = airport_code.upper()
-
-    ident = (
-        airports["ident"]
-        .fillna("")
-        .astype(str)
-        .str.upper()
-    )
-
-    gps_code = (
-        airports["gps_code"]
-        .fillna("")
-        .astype(str)
-        .str.upper()
-    )
-
-    match = airports[
-        (ident == airport_code)
-        | (gps_code == airport_code)
-    ]
-
-    if match.empty:
-        raise SystemExit(
-            f'Error: airport "{airport_code}" was not found '
-            "in the airport reference dataset."
-        )
-
-    airport = match.iloc[0]
-
-    return {
-        "name": str(airport.get("name", "")),
-        "latitude": airport.get("latitude_deg"),
-        "longitude": airport.get("longitude_deg"),
-    }
-
-
-def determine_timezone(metadata, override=None):
-    if override:
-        return override
-
-    latitude = metadata["latitude"]
-    longitude = metadata["longitude"]
-
-    if pd.isna(latitude) or pd.isna(longitude):
-        raise SystemExit(
-            "Error: airport coordinates are missing. "
-            "Use --timezone to specify the timezone manually."
-        )
-
-    timezone = TIMEZONE_FINDER.timezone_at(
-        lat=float(latitude),
-        lng=float(longitude),
-    )
-
-    if not timezone:
-        raise SystemExit(
-            "Error: timezone could not be determined. "
-            "Use --timezone to specify it manually."
-        )
-
-    return timezone
-
-def load_json_config(path, description):
-    if not path.exists():
-        raise SystemExit(
-            f'Error: {description} file not found: "{path}"'
-        )
-
-    try:
-        with path.open("r", encoding="utf-8") as file:
-            return json.load(file)
-
-    except json.JSONDecodeError as exc:
-        raise SystemExit(
-            f'Error: invalid JSON in {description} file "{path}": {exc}'
-        ) from exc
-
-
-def load_airport_overrides(path=AIRPORT_OVERRIDES_FILE):
-    config = load_json_config(
-        path,
-        "airport overrides",
-    )
-
-    reidentifications = {
-        str(old).strip().upper(): str(new).strip().upper()
-        for old, new in config.get(
-            "reidentifications",
-            {},
-        ).items()
-    }
-
-    excluded_airports = {
-        str(code).strip().upper()
-        for code in config.get(
-            "excluded_airports",
-            [],
-        )
-    }
-
-    return reidentifications, excluded_airports
-
-def build_known_airports(airports):
-    known_airports = set()
-
-    for column in ["ident", "gps_code"]:
-        if column in airports.columns:
-            values = (
-                airports[column]
-                .dropna()
-                .astype(str)
-                .str.strip()
-                .str.upper()
-            )
-
-            known_airports.update(values)
-
-    return known_airports
-
-
-def is_valid_text(value):
-    if pd.isna(value):
-        return False
-
-    value = str(value).strip()
-
-    return value not in (
-        "",
-        "-",
-        "nan",
-        "None",
-    )
-    
 def run_pick_day(args):
     input_file = Path(args.input)
 
@@ -255,9 +86,7 @@ def run_pick_day(args):
         )
 
     airports = load_airport_reference()
-    known_airports = build_known_airports(
-    airports
-    )
+    known_airports = build_known_airports(airports)
     airport_reidentifications, excluded_airports = (
         load_airport_overrides()
     )
@@ -281,12 +110,12 @@ def run_pick_day(args):
     print("\nLoading flight dataset...")
 
     columns = [
-    "Callsign",
-    "AC_Type",
-    "Track_Origin_DateTime_UTC",
-    "Track_Origin_ApplicableAirports",
-    "Track_Destination_DateTime_UTC",
-    "Track_Destination_ApplicableAirports",
+        "Callsign",
+        "AC_Type",
+        "Track_Origin_DateTime_UTC",
+        "Track_Origin_ApplicableAirports",
+        "Track_Destination_DateTime_UTC",
+        "Track_Destination_ApplicableAirports",
     ]
 
     df = pd.read_parquet(
@@ -314,8 +143,7 @@ def run_pick_day(args):
             na=False,
             regex=False,
         )
-        |
-        destination_text.str.contains(
+        | destination_text.str.contains(
             airport,
             na=False,
             regex=False,
@@ -344,8 +172,7 @@ def run_pick_day(args):
         df["origin_airports"].apply(
             lambda x: x == [airport]
         )
-        &
-        df["destination_airports"].apply(
+        & df["destination_airports"].apply(
             lambda x: len(x) == 1
         )
     )
@@ -354,8 +181,7 @@ def run_pick_day(args):
         df["destination_airports"].apply(
             lambda x: x == [airport]
         )
-        &
-        df["origin_airports"].apply(
+        & df["origin_airports"].apply(
             lambda x: len(x) == 1
         )
     )
@@ -453,8 +279,7 @@ def run_pick_day(args):
         combined["origin"].isin(
             excluded_airports
         )
-        |
-        combined["destination"].isin(
+        | combined["destination"].isin(
             excluded_airports
         )
     )
@@ -536,21 +361,10 @@ def run_pick_day(args):
     )
 
     combined = combined[
-        combined["Callsign"].apply(
-            is_valid_text
-        )
-        &
-        combined["AC_Type"].apply(
-            is_valid_text
-        )
-        &
-        combined["origin"].apply(
-            is_valid_text
-        )
-        &
-        combined["destination"].apply(
-            is_valid_text
-        )
+        combined["Callsign"].apply(is_valid_text)
+        & combined["AC_Type"].apply(is_valid_text)
+        & combined["origin"].apply(is_valid_text)
+        & combined["destination"].apply(is_valid_text)
     ].copy()
 
     invalid_count = (
@@ -643,10 +457,9 @@ def run_pick_day(args):
             weekdays.index.month == args.month
         ].copy()
 
-        if weekdays.empty:
-            raise SystemExit(
-                f"Error: no weekday traffic found for month {args.month}."
-            )
+    if weekdays.empty:
+        scope = f" for month {args.month}" if args.month else ""
+        raise SystemExit(f"Error: no weekday traffic found{scope}.")
 
     median_departures = weekdays["departures"].median()
     median_arrivals = weekdays["arrivals"].median()
@@ -691,10 +504,10 @@ def run_pick_day(args):
             day=1,
         ).month_name()
 
-        analysis_label += f" — {month_name}"
+        analysis_label += f" - {month_name}"
 
     print(
-        f"REPRESENTATIVE WEEKDAY ANALYSIS — {analysis_label}"
+        f"REPRESENTATIVE WEEKDAY ANALYSIS - {analysis_label}"
     )
 
     print("=" * 72)
@@ -769,8 +582,6 @@ def run_pick_day(args):
         f"  Representative score: "
         f"{recommended['score']:,.0f}"
     )
-
-
 
 def main():
     args = parse_args()

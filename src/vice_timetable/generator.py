@@ -9,11 +9,11 @@ import pandas as pd
 from timezonefinder import TimezoneFinder
 
 
-BASE_DIR = Path(__file__).resolve().parents[2]
-AIRPORT_REFERENCE_FILE = BASE_DIR / "reference" / "airports.csv"
-AIRPORT_OVERRIDES_FILE = BASE_DIR / "airport_overrides.json"
-CARGO_RULES_FILE = BASE_DIR / "cargo_rules.json"
-OUTPUT_DIR = BASE_DIR / "output"
+PACKAGE_DATA_DIR = Path(__file__).resolve().parent / "data"
+AIRPORT_REFERENCE_FILE = PACKAGE_DATA_DIR / "airports.csv"
+AIRPORT_OVERRIDES_FILE = PACKAGE_DATA_DIR / "airport_overrides.json"
+CARGO_RULES_FILE = PACKAGE_DATA_DIR / "cargo_rules.json"
+OUTPUT_DIR = Path.cwd() / "output"
 TIMEZONE_FINDER = TimezoneFinder()
 
 
@@ -320,7 +320,6 @@ def generate_timetable(
     target_date,
     timezone_name,
     timetable_name,
-    airports,
     known_airports,
     airport_reidentifications,
     excluded_airports,
@@ -795,7 +794,6 @@ def run_generate(args):
         target_date=target_date,
         timezone_name=timezone_name,
         timetable_name=args.name,
-        airports=airports,
         known_airports=known_airports,
         airport_reidentifications=airport_reidentifications,
         excluded_airports=excluded_airports,

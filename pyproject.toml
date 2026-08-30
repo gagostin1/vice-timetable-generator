@@ -7,6 +7,7 @@ build-backend = "setuptools.build_meta"
 name = "vice-timetable"
 version = "0.1.0"
 description = "Tools for generating VICE traffic timetables from historical flight data."
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "pandas",
@@ -21,3 +22,7 @@ vice-timetable = "vice_timetable.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+
+[tool.setuptools.package-data]
+vice_timetable = ["data/*.csv", "data/*.json"]

@@ -28,8 +28,8 @@ def test_generate_timetable_end_to_end(tmp_path, monkeypatch):
 
     # Redirect generated output so tests don't touch the normal output folder.
     monkeypatch.setattr(
-    "vice_timetable.generator.OUTPUT_DIR",
-    tmp_path,
+        "vice_timetable.generator.OUTPUT_DIR",
+        tmp_path,
     )
 
     result = generate_timetable(
@@ -38,7 +38,6 @@ def test_generate_timetable_end_to_end(tmp_path, monkeypatch):
         target_date="2026-06-18",
         timezone_name="America/New_York",
         timetable_name="Test",
-        airports=airports,
         known_airports=known_airports,
         airport_reidentifications=airport_reidentifications,
         excluded_airports=excluded_airports,
